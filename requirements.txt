@@ -21,6 +21,8 @@ kafka-python>=2.0.2
 # Data processing
 apache-flink>=1.17.0
 pyarrow>=13.0.0
+apache-beam>=2.40.0
+pydantic-settings>=2.0.0
 
 # Web and API
 requests>=2.31.0

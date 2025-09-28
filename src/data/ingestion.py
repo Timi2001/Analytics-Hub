@@ -11,8 +11,6 @@ from pydantic import BaseModel
 import websockets
 import redis.asyncio as redis
 from kafka import KafkaProducer, KafkaConsumer
-import apache_beam as beam
-from apache_beam.options.pipeline_options import PipelineOptions
 
 from src.config.settings import settings
 

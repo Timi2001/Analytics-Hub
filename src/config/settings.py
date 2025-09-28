@@ -3,7 +3,8 @@ Configuration settings for the Real-Time ML Application.
 """
 import os
 from typing import List, Optional
-from pydantic import BaseSettings, validator
+from pydantic import BaseModel, Field, field_validator
+from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
@@ -51,21 +52,24 @@ class Settings(BaseSettings):
     prometheus_gateway: str = "http://localhost:9091"
     metrics_port: int = 9090
 
-    @validator("cors_origins", pre=True)
+    @field_validator("cors_origins", mode="before")
+    @classmethod
     def assemble_cors_origins(cls, v):
         """Parse CORS origins from string to list."""
         if isinstance(v, str):
             return [i.strip() for i in v.split(",")]
         return v
 
-    @validator("debug", pre=True)
+    @field_validator("debug", mode="before")
+    @classmethod
     def parse_debug(cls, v):
         """Parse debug as boolean."""
         if isinstance(v, str):
             return v.lower() in ("yes", "true", "t", "1")
         return bool(v)
 
-    @validator("auto_retraining", pre=True)
+    @field_validator("auto_retraining", mode="before")
+    @classmethod
     def parse_auto_retraining(cls, v):
         """Parse auto_retraining as boolean."""
         if isinstance(v, str):
