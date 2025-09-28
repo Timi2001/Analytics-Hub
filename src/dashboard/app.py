@@ -88,6 +88,12 @@ class StreamlitDashboard:
             st.session_state.models_list = []
         if 'selected_model' not in st.session_state:
             st.session_state.selected_model = None
+        if 'nlp_processor' not in st.session_state:
+            st.session_state.nlp_processor = QueryProcessor()
+        if 'response_generator' not in st.session_state:
+            st.session_state.response_generator = ResponseGenerator()
+        if 'chat_history' not in st.session_state:
+            st.session_state.chat_history = []
 
     def render_header(self):
         """Render the main header."""
@@ -203,18 +209,21 @@ class StreamlitDashboard:
 
     def render_main_content(self):
         """Render the main content area."""
-        tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "📈 Analytics", "🤖 Models", "⚙️ Settings"])
+        tab1, tab2, tab3, tab4, tab5 = st.tabs(["📊 Dashboard", "💬 AI Assistant", "📈 Analytics", "🤖 Models", "⚙️ Settings"])
 
         with tab1:
             self.render_dashboard_tab()
 
         with tab2:
-            self.render_analytics_tab()
+            self.render_ai_assistant_tab()
 
         with tab3:
-            self.render_models_tab()
+            self.render_analytics_tab()
 
         with tab4:
+            self.render_models_tab()
+
+        with tab5:
             self.render_settings_tab()
 
     def render_dashboard_tab(self):
@@ -270,6 +279,217 @@ class StreamlitDashboard:
                         value=metric["Value"],
                         delta=metric["Change"]
                     )
+
+    def render_ai_assistant_tab(self):
+        """Render the AI assistant tab with natural language processing."""
+        st.header("💬 AI Analytics Assistant")
+        st.markdown("### 🤖 Ask me anything about your data in natural language!")
+
+        # Chat interface
+        st.subheader("💭 Chat with AI")
+
+        # Display chat history
+        for message in st.session_state.chat_history:
+            with st.chat_message(message["role"]):
+                st.write(message["content"])
+
+                # Show additional data if it's a response with results
+                if message["role"] == "assistant" and "results" in message:
+                    self._display_ai_results(message["results"])
+
+        # Chat input
+        if prompt := st.chat_input("Ask me about your data..."):
+            # Add user message to history
+            st.session_state.chat_history.append({"role": "user", "content": prompt})
+
+            # Show user message
+            with st.chat_message("user"):
+                st.write(prompt)
+
+            # Process query
+            with st.chat_message("assistant"):
+                with st.spinner("🤖 AI is thinking..."):
+                    # Get current data if available
+                    current_data = None
+                    if st.session_state.dashboard_data.get('recent_data'):
+                        try:
+                            current_data = pd.DataFrame(st.session_state.dashboard_data['recent_data'])
+                        except:
+                            current_data = None
+
+                    # Process the natural language query
+                    nlp_processor = st.session_state.nlp_processor
+                    result = asyncio.run(nlp_processor.process_query(prompt, current_data))
+
+                    # Generate natural language response
+                    response_generator = st.session_state.response_generator
+                    response_text = response_generator.generate_response(result)
+
+                    # Display response
+                    st.write(response_text)
+
+                    # Display results if successful
+                    if result.get('success', False):
+                        self._display_ai_results(result)
+
+                    # Add to chat history
+                    st.session_state.chat_history.append({
+                        "role": "assistant",
+                        "content": response_text,
+                        "results": result
+                    })
+
+        # Quick suggestions
+        st.subheader("🚀 Quick Suggestions")
+        col1, col2, col3 = st.columns(3)
+
+        with col1:
+            if st.button("📊 Summarize my data"):
+                self._handle_quick_query("Give me a summary of my data")
+
+        with col2:
+            if st.button("📈 Show trends"):
+                self._handle_quick_query("What are the trends in my data?")
+
+        with col3:
+            if st.button("🔗 Find correlations"):
+                self._handle_quick_query("Find correlations between variables")
+
+        # Data status
+        st.subheader("📋 Data Status")
+        col1, col2 = st.columns(2)
+
+        with col1:
+            data_info = asyncio.run(st.session_state.nlp_processor.get_available_data_info())
+            if data_info['has_data']:
+                st.success(f"✅ Data loaded: {data_info['data_shape']}")
+                st.info(f"📊 Columns: {', '.join(data_info['columns'][:3])}...")
+            else:
+                st.warning("⚠️ No data loaded")
+                st.info("💡 Upload data in the sidebar to get started")
+
+        with col2:
+            if data_info['trained_models']:
+                st.success(f"🤖 Models available: {len(data_info['trained_models'])}")
+            else:
+                st.warning("⚠️ No trained models")
+                st.info("💡 Train a model to enable predictions")
+
+    def _handle_quick_query(self, query: str):
+        """Handle quick suggestion queries."""
+        # Add to chat history
+        st.session_state.chat_history.append({"role": "user", "content": query})
+
+        # Process immediately
+        current_data = None
+        if st.session_state.dashboard_data.get('recent_data'):
+            try:
+                current_data = pd.DataFrame(st.session_state.dashboard_data['recent_data'])
+            except:
+                current_data = None
+
+        nlp_processor = st.session_state.nlp_processor
+        result = asyncio.run(nlp_processor.process_query(query, current_data))
+
+        response_generator = st.session_state.response_generator
+        response_text = response_generator.generate_response(result)
+
+        st.session_state.chat_history.append({
+            "role": "assistant",
+            "content": response_text,
+            "results": result
+        })
+
+        st.rerun()
+
+    def _display_ai_results(self, result: Dict[str, Any]):
+        """Display AI analysis results in the chat."""
+        try:
+            if not result.get('success', False):
+                if 'suggestions' in result:
+                    st.info("💡 Suggestions:")
+                    for suggestion in result['suggestions']:
+                        st.write(f"• {suggestion}")
+                return
+
+            # Display different types of results
+            if result.get('action') == 'data_summary_created':
+                self._display_summary_results(result)
+            elif result.get('action') == 'visualization_created':
+                self._display_visualization_results(result)
+            elif result.get('action') == 'correlation_analysis_created':
+                self._display_correlation_results(result)
+            elif result.get('action') == 'predictions_generated':
+                self._display_prediction_results(result)
+            elif result.get('action') == 'feature_importance_analyzed':
+                self._display_feature_importance_results(result)
+
+        except Exception as e:
+            st.error(f"Error displaying results: {e}")
+
+    def _display_summary_results(self, result: Dict[str, Any]):
+        """Display data summary results."""
+        summary = result.get('summary', {})
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.metric("📊 Total Rows", summary.get('total_rows', 0))
+            st.metric("📋 Total Columns", summary.get('total_columns', 0))
+
+        with col2:
+            numeric_cols = len(summary.get('numeric_columns', []))
+            categorical_cols = len(summary.get('categorical_columns', []))
+            st.metric("🔢 Numeric Columns", numeric_cols)
+            st.metric("📝 Categorical Columns", categorical_cols)
+
+        # Show column types
+        if summary.get('column_types'):
+            with st.expander("📋 Column Details"):
+                for col, dtype in summary['column_types'].items():
+                    st.write(f"**{col}**: {dtype}")
+
+    def _display_correlation_results(self, result: Dict[str, Any]):
+        """Display correlation analysis results."""
+        correlations = result.get('strongest_correlations', [])
+
+        if correlations:
+            st.subheader("🔗 Strongest Correlations")
+
+            for corr in correlations[:5]:  # Show top 5
+                strength = "🔴" if abs(corr['correlation']) > 0.7 else "🟡" if abs(corr['correlation']) > 0.3 else "🟢"
+                st.write(f"{strength} **{corr['column1']}** ↔ **{corr['column2']}**: {corr['correlation']:.3f}")
+
+    def _display_prediction_results(self, result: Dict[str, Any]):
+        """Display prediction results."""
+        predictions = result.get('predictions', [])
+
+        if predictions:
+            st.subheader("🔮 Predictions")
+            st.write(f"Generated {len(predictions)} predictions using **{result.get('model_name', 'trained model')}**")
+
+            # Show first few predictions
+            st.write("Sample predictions:")
+            for i, pred in enumerate(predictions[:5]):
+                st.write(f"Prediction {i+1}: {pred}")
+
+    def _display_feature_importance_results(self, result: Dict[str, Any]):
+        """Display feature importance results."""
+        top_features = result.get('top_features', [])
+
+        if top_features:
+            st.subheader("🎯 Most Important Features")
+
+            for i, (feature, importance) in enumerate(top_features, 1):
+                # Create a visual bar
+                bar_length = int(importance * 50)  # Scale for display
+                bar = "█" * bar_length
+                st.write(f"{i}. **{feature}**: {bar} ({importance:.3f})")
+
+    def _display_visualization_results(self, result: Dict[str, Any]):
+        """Display visualization results."""
+        st.success(f"✅ Created {result.get('visualization_type', 'chart')} visualization!")
+        st.info(f"📊 Columns visualized: {', '.join(result.get('columns_visualized', []))}")
 
     def render_analytics_tab(self):
         """Render the analytics tab."""
